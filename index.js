@@ -7,6 +7,7 @@ import makeWASocket, {
   useMultiFileAuthState,
   downloadMediaMessage,
   DisconnectReason,
+  Browsers,
   DEFAULT_CONNECTION_CONFIG
 } from 'redxbailays-v1'
 import pino from 'pino'
@@ -17,7 +18,7 @@ const AUTH_DIR = process.env.AUTH_DIR || './auth'
 const logger = pino({ level: 'silent' })
 
 console.log('[BOOT] redx-test-bot starting')
-console.log('[BOOT] fork default browser =', JSON.stringify(DEFAULT_CONNECTION_CONFIG.browser))
+console.log('[BOOT] fork default browser =', JSON.stringify(DEFAULT_CONNECTION_CONFIG.browser), '| override in use =', JSON.stringify(Browsers.macOS('Safari')))
 console.log('[BOOT] pair number =', PHONE || '(PAIR_NUMBER not set!)')
 
 let sock = null
@@ -48,9 +49,11 @@ async function start() {
 
   sock = makeWASocket({
     auth: state,
-    logger
-    // NOTE: no browser override on purpose — the fork's androidPhone
-    // default is exactly what is being tested.
+    logger,
+    // User's call (2026-11-22): fork's androidPhone identity seems to block
+    // pairing on this account — use the macOS Safari identity instead,
+    // the one that pairs fine on the main bot.
+    browser: Browsers.macOS('Safari')
   })
 
   sock.ev.on('creds.update', saveCreds)
@@ -83,8 +86,17 @@ async function start() {
       const loggedOut = statusCode === DisconnectReason.loggedOut
       console.log('[CONN] CLOSE statusCode=', statusCode, loggedOut ? '(loggedOut)' : '')
       if (loggedOut) {
-        destroyed = true
         try { fs.rmSync(AUTH_DIR, { recursive: true, force: true }) } catch {}
+        if (!state.creds.registered) {
+          // Half-paired junk creds rejected — wipe and start over so a
+          // fresh pairing code is issued automatically.
+          console.log('[CONN] logged out while UNPAIRED — auth cleared, restarting fresh')
+          pairingRequested = false
+          closeCount = 0
+          setTimeout(() => { if (!destroyed) start().catch(e => console.log('[ERR] restart', e?.message || e)) }, 3000)
+          return
+        }
+        destroyed = true
         console.log('[CONN] logged out — auth cleared, not reconnecting')
         return
       }

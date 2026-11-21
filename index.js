@@ -25,6 +25,20 @@ let sock = null
 let destroyed = false
 let pairingRequested = false
 let closeCount = 0
+let wipeOnBoot = false
+
+// Delete the CONTENTS of the auth dir (the dir itself may be a volume
+// mount point that cannot be removed).
+function wipeAuthContents() {
+  try {
+    for (const entry of fs.readdirSync(AUTH_DIR)) {
+      try { fs.rmSync(`${AUTH_DIR}/${entry}`, { recursive: true, force: true }) } catch {}
+    }
+    console.log('[AUTH] contents wiped')
+  } catch (e) {
+    console.log('[AUTH] wipe failed:', e?.message || e)
+  }
+}
 
 // Recursively find image/video/audio media anywhere in a message tree,
 // without descending into contextInfo (quoted messages are not arrivals).
@@ -45,6 +59,7 @@ function findMedia(obj, path = '', depth = 0) {
 
 async function start() {
   if (destroyed) return
+  if (wipeOnBoot) { wipeOnBoot = false; wipeAuthContents() }
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR)
 
   sock = makeWASocket({
@@ -60,9 +75,11 @@ async function start() {
 
   if (!state.creds.registered && PHONE && !pairingRequested) {
     pairingRequested = true
+    const mySock = sock
     setTimeout(async () => {
+      if (sock !== mySock) { console.log('[PAIR] stale timer skipped'); return }
       try {
-        const code = await sock.requestPairingCode(PHONE)
+        const code = await mySock.requestPairingCode(PHONE)
         console.log(`[PAIR] PAIRING_CODE=${code} for ${PHONE}`)
       } catch (e) {
         console.log('[PAIR] requestPairingCode failed:', e?.message || e)
@@ -86,17 +103,20 @@ async function start() {
       const loggedOut = statusCode === DisconnectReason.loggedOut
       console.log('[CONN] CLOSE statusCode=', statusCode, loggedOut ? '(loggedOut)' : '')
       if (loggedOut) {
-        try { fs.rmSync(AUTH_DIR, { recursive: true, force: true }) } catch {}
         if (!state.creds.registered) {
-          // Half-paired junk creds rejected — wipe and start over so a
-          // fresh pairing code is issued automatically.
-          console.log('[CONN] logged out while UNPAIRED — auth cleared, restarting fresh')
+          // Half-paired junk creds rejected. Kill THIS socket first so its
+          // saveCreds cannot rewrite the rejected creds after the wipe,
+          // then wipe on next boot and start over with a fresh code.
+          console.log('[CONN] logged out while UNPAIRED — ending socket, wipe on reboot')
+          try { sock.end(undefined) } catch {}
+          wipeOnBoot = true
           pairingRequested = false
           closeCount = 0
           setTimeout(() => { if (!destroyed) start().catch(e => console.log('[ERR] restart', e?.message || e)) }, 3000)
           return
         }
         destroyed = true
+        wipeAuthContents()
         console.log('[CONN] logged out — auth cleared, not reconnecting')
         return
       }

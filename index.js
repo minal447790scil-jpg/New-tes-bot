@@ -1,31 +1,34 @@
-// TEST BOT v2 — isolated diagnostic bot. Main bot is NOT touched by this.
-// Question: the Qadeer panel bot (which demonstrably recovers view-once on
-// the owner's account) belongs to a bot family whose public code pins
-// STOCK Baileys 6.7.18 / 7.0.0-rc9 — older generations than the rc13/rc16
-// that receive view-once keyless or as unavailable stubs. Does stock
-// 6.7.18, with its own default identity/version, receive a fresh incoming
-// view-once WITH a mediaKey (keyLen>0) that downloads? Logs give the verdict.
-import baileys from '@whiskeysockets/baileys'
-import pino from 'pino'
-import fs from 'fs'
-
-const makeWASocket = baileys.default || baileys.makeWASocket || baileys
-const {
+// TEST BOT v3 — isolated diagnostic bot. Main bot is NOT touched by this.
+// Recipe copied from a real, public, working bot (ara-aras/Whatsapp-bot,
+// commit "fix(view-once): android companion identity + correct detection"):
+//   - STOCK @whiskeysockets/baileys 7.0.0-rc14 (upstream "latest")
+//   - browser: Browsers.android('13')  -> companion registers with
+//     DeviceProps platformType ANDROID_PHONE, consistently in both the
+//     registration node and the pairing-code companion_platform_id.
+//     (rc13 lacked the ANDROID special-case: our hand-made tuple made the
+//     two paths disagree — DeviceProps said ANDROID_PHONE while the
+//     platform id defaulted to Chrome — and pairing died with 428.)
+// Question: paired this way on the second number, does a fresh incoming
+// view-once arrive WITH mediaKey (keyLen=32) and download? Logs decide.
+import makeWASocket, {
   useMultiFileAuthState,
   downloadMediaMessage,
   DisconnectReason,
   Browsers,
-  DEFAULT_CONNECTION_CONFIG,
-  fetchLatestBaileysVersion
-} = baileys
+  fetchLatestBaileysVersion,
+  DEFAULT_CONNECTION_CONFIG
+} from '@whiskeysockets/baileys'
+import pino from 'pino'
+import fs from 'fs'
 
 const PHONE = (process.env.PAIR_NUMBER || '').replace(/\D/g, '')
 const AUTH_DIR = process.env.AUTH_DIR || './auth'
 const logger = pino({ level: 'silent' })
+const BROWSER = Browsers.android('13')
 
-console.log('[BOOT] redx-test-bot starting')
-console.log('[BOOT] baileys 6.7.18 default browser =', JSON.stringify(DEFAULT_CONNECTION_CONFIG.browser), '| wa version =', JSON.stringify(DEFAULT_CONNECTION_CONFIG.version))
-console.log('[BOOT] pair number =', PHONE || '(PAIR_NUMBER not set!)')
+console.log('[BOOT] redx-test-bot v3 (rc14 + android companion) starting')
+console.log('[BOOT] browser =', JSON.stringify(BROWSER), '| default would be =', JSON.stringify(DEFAULT_CONNECTION_CONFIG.browser))
+console.log('[BOOT] pair number =', PHONE || '(PAIR_NUMBER not set!)', '| auth dir =', AUTH_DIR)
 
 let sock = null
 let destroyed = false
@@ -34,8 +37,8 @@ let closeCount = 0
 let wipeOnBoot = false
 const resendTried = new Set()
 
-// Delete the CONTENTS of the auth dir (the dir itself may be a volume
-// mount point that cannot be removed).
+// Delete the CONTENTS of the auth dir (the dir itself may sit under a
+// volume mount point that cannot be removed).
 function wipeAuthContents() {
   try {
     for (const entry of fs.readdirSync(AUTH_DIR)) {
@@ -69,9 +72,6 @@ async function start() {
   if (wipeOnBoot) { wipeOnBoot = false; wipeAuthContents() }
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR)
 
-  // 6.7.18's bundled WA version is below WhatsApp's current minimum
-  // (server closes with 405). Every real 6.7 bot fetches the live version
-  // at boot — do exactly that; identity stays the stock Ubuntu/Chrome.
   let version = DEFAULT_CONNECTION_CONFIG.version
   try {
     const latest = await fetchLatestBaileysVersion()
@@ -84,7 +84,9 @@ async function start() {
   sock = makeWASocket({
     auth: state,
     logger,
-    version
+    version,
+    browser: BROWSER,
+    syncFullHistory: false
   })
 
   sock.ev.on('creds.update', saveCreds)
@@ -105,7 +107,8 @@ async function start() {
   }
 
   sock.ev.on('connection.update', (u) => {
-    const { connection, lastDisconnect } = u
+    const { connection, lastDisconnect, qr } = u
+    if (qr) console.log('[QR]', qr)
     if (connection) {
       const code = lastDisconnect?.error?.output?.statusCode
       console.log('[CONN]', connection, code ? `lastClose=${code}` : '')
@@ -153,9 +156,6 @@ async function start() {
         console.log(`[SHAPE] id=${msg.key.id} chat=${msg.key.remoteJid} fromMe=${!!msg.key.fromMe} stubType=${msg.messageStubType ?? '-'} stubParams=${JSON.stringify(msg.messageStubParameters || [])} msgKeys=${msg.message ? Object.keys(msg.message).join(',') : '(none)'} keyIsViewOnce=${!!msg.key?.isViewOnce}`)
         if (!msg.message) {
           if (msg.key?.isViewOnce) console.log('[MEDIA] view-once UNAVAILABLE stub, id=', msg.key.id)
-          // ACTIVE step never tried on any build: if the server delivered an
-          // "absent from node" placeholder, ask the primary phone to resend
-          // the full message via placeholder resend, once per message id.
           const absent = (msg.messageStubParameters || []).some(p => String(p).toLowerCase().includes('absent'))
           const jid = msg.key.remoteJid || ''
           if (absent && !msg.key.fromMe && !jid.endsWith('@newsletter') && jid !== 'status@broadcast' && !resendTried.has(msg.key.id)) {
@@ -179,8 +179,8 @@ async function start() {
           console.log(`[DOWNLOAD] OK id=${msg.key.id} bytes=${buf.length}`)
           if (!msg.key.fromMe && (found.type === 'imageMessage' || found.type === 'videoMessage')) {
             const payload = found.type === 'imageMessage'
-              ? { image: buf, caption: 'REDX TEST: media recovered by fork bot' }
-              : { video: buf, caption: 'REDX TEST: media recovered by fork bot' }
+              ? { image: buf, caption: 'TEST BOT (rc14 android): media recovered' }
+              : { video: buf, caption: 'TEST BOT (rc14 android): media recovered' }
             await sock.sendMessage(msg.key.remoteJid, payload)
             console.log(`[DOWNLOAD] SENT_BACK id=${msg.key.id}`)
           }

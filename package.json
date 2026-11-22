@@ -1,1 +1,18 @@
-{"dependencies":{"@whiskeysockets/baileys":"6.7.18","pino":"^9.6.0"},"description":"Isolated diagnostic bot: test whether stock Baileys 6.7.18 (the generation the Qadeer panel bot family pins) receives view-once media keys as a companion.","engines":{"node":">=20"},"main":"index.js","name":"redx-test-bot","private":true,"scripts":{"start":"node index.js"},"type":"module","version":"1.0.0"}
+{
+  "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "pino": "^9.6.0"
+  },
+  "description": "Isolated diagnostic bot v3: stock Baileys 7.0.0-rc14 + Browsers.android(13) companion identity (recipe from ara-aras/Whatsapp-bot) \u2014 does an Android-class companion on rc14 receive view-once media WITH mediaKey?",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "index.js",
+  "name": "redx-test-bot",
+  "private": true,
+  "scripts": {
+    "start": "node index.js"
+  },
+  "type": "module",
+  "version": "1.0.0"
+}

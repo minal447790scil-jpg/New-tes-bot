@@ -1,24 +1,29 @@
-// REDX TEST BOT — isolated diagnostic bot. Main bot is NOT touched by this.
-// Purpose: (1) does the RedxBaileys fork pair successfully under its default
-// androidPhone identity? (2) does a fresh incoming view-once arrive WITH a
-// mediaKey (keyLen>0) and download? Every arrival is logged with keyLen so
-// the Railway logs alone give the verdict.
-import makeWASocket, {
+// TEST BOT v2 — isolated diagnostic bot. Main bot is NOT touched by this.
+// Question: the Qadeer panel bot (which demonstrably recovers view-once on
+// the owner's account) belongs to a bot family whose public code pins
+// STOCK Baileys 6.7.18 / 7.0.0-rc9 — older generations than the rc13/rc16
+// that receive view-once keyless or as unavailable stubs. Does stock
+// 6.7.18, with its own default identity/version, receive a fresh incoming
+// view-once WITH a mediaKey (keyLen>0) that downloads? Logs give the verdict.
+import baileys from '@whiskeysockets/baileys'
+import pino from 'pino'
+import fs from 'fs'
+
+const makeWASocket = baileys.default || baileys.makeWASocket || baileys
+const {
   useMultiFileAuthState,
   downloadMediaMessage,
   DisconnectReason,
   Browsers,
   DEFAULT_CONNECTION_CONFIG
-} from 'redxbailays-v1'
-import pino from 'pino'
-import fs from 'fs'
+} = baileys
 
 const PHONE = (process.env.PAIR_NUMBER || '').replace(/\D/g, '')
 const AUTH_DIR = process.env.AUTH_DIR || './auth'
 const logger = pino({ level: 'silent' })
 
 console.log('[BOOT] redx-test-bot starting')
-console.log('[BOOT] fork default browser =', JSON.stringify(DEFAULT_CONNECTION_CONFIG.browser), '| override in use =', JSON.stringify(Browsers.macOS('Safari')))
+console.log('[BOOT] baileys 6.7.18 default browser =', JSON.stringify(DEFAULT_CONNECTION_CONFIG.browser), '| wa version =', JSON.stringify(DEFAULT_CONNECTION_CONFIG.version))
 console.log('[BOOT] pair number =', PHONE || '(PAIR_NUMBER not set!)')
 
 let sock = null
@@ -64,11 +69,9 @@ async function start() {
 
   sock = makeWASocket({
     auth: state,
-    logger,
-    // User's call (2026-11-22): fork's androidPhone identity seems to block
-    // pairing on this account — use the macOS Safari identity instead,
-    // the one that pairs fine on the main bot.
-    browser: Browsers.macOS('Safari')
+    logger
+    // No browser/version override on purpose: the stock 6.7.18 defaults
+    // are exactly what is being tested.
   })
 
   sock.ev.on('creds.update', saveCreds)

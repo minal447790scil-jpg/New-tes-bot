@@ -32,6 +32,7 @@ let destroyed = false
 let pairingRequested = false
 let closeCount = 0
 let wipeOnBoot = false
+const resendTried = new Set()
 
 // Delete the CONTENTS of the auth dir (the dir itself may be a volume
 // mount point that cannot be removed).
@@ -152,6 +153,20 @@ async function start() {
         console.log(`[SHAPE] id=${msg.key.id} chat=${msg.key.remoteJid} fromMe=${!!msg.key.fromMe} stubType=${msg.messageStubType ?? '-'} stubParams=${JSON.stringify(msg.messageStubParameters || [])} msgKeys=${msg.message ? Object.keys(msg.message).join(',') : '(none)'} keyIsViewOnce=${!!msg.key?.isViewOnce}`)
         if (!msg.message) {
           if (msg.key?.isViewOnce) console.log('[MEDIA] view-once UNAVAILABLE stub, id=', msg.key.id)
+          // ACTIVE step never tried on any build: if the server delivered an
+          // "absent from node" placeholder, ask the primary phone to resend
+          // the full message via placeholder resend, once per message id.
+          const absent = (msg.messageStubParameters || []).some(p => String(p).toLowerCase().includes('absent'))
+          const jid = msg.key.remoteJid || ''
+          if (absent && !msg.key.fromMe && !jid.endsWith('@newsletter') && jid !== 'status@broadcast' && !resendTried.has(msg.key.id)) {
+            resendTried.add(msg.key.id)
+            try {
+              const r = await sock.requestPlaceholderResend(msg.key)
+              console.log(`[RESEND] placeholder resend requested id=${msg.key.id} result=${r}`)
+            } catch (e) {
+              console.log(`[RESEND] failed id=${msg.key.id} err=${e?.message || e}`)
+            }
+          }
           continue
         }
         const found = findMedia(msg.message)

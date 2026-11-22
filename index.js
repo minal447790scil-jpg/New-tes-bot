@@ -15,7 +15,8 @@ const {
   downloadMediaMessage,
   DisconnectReason,
   Browsers,
-  DEFAULT_CONNECTION_CONFIG
+  DEFAULT_CONNECTION_CONFIG,
+  fetchLatestBaileysVersion
 } = baileys
 
 const PHONE = (process.env.PAIR_NUMBER || '').replace(/\D/g, '')
@@ -67,11 +68,22 @@ async function start() {
   if (wipeOnBoot) { wipeOnBoot = false; wipeAuthContents() }
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR)
 
+  // 6.7.18's bundled WA version is below WhatsApp's current minimum
+  // (server closes with 405). Every real 6.7 bot fetches the live version
+  // at boot — do exactly that; identity stays the stock Ubuntu/Chrome.
+  let version = DEFAULT_CONNECTION_CONFIG.version
+  try {
+    const latest = await fetchLatestBaileysVersion()
+    if (latest?.version) version = latest.version
+  } catch (e) {
+    console.log('[BOOT] fetchLatestBaileysVersion failed, using default:', e?.message || e)
+  }
+  console.log('[BOOT] using wa version =', JSON.stringify(version))
+
   sock = makeWASocket({
     auth: state,
-    logger
-    // No browser/version override on purpose: the stock 6.7.18 defaults
-    // are exactly what is being tested.
+    logger,
+    version
   })
 
   sock.ev.on('creds.update', saveCreds)

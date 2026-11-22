@@ -149,6 +149,7 @@ async function start() {
     console.log(`[UPSERT] type=${type} count=${messages.length}`)
     for (const msg of messages) {
       try {
+        console.log(`[SHAPE] id=${msg.key.id} chat=${msg.key.remoteJid} fromMe=${!!msg.key.fromMe} stubType=${msg.messageStubType ?? '-'} stubParams=${JSON.stringify(msg.messageStubParameters || [])} msgKeys=${msg.message ? Object.keys(msg.message).join(',') : '(none)'} keyIsViewOnce=${!!msg.key?.isViewOnce}`)
         if (!msg.message) {
           if (msg.key?.isViewOnce) console.log('[MEDIA] view-once UNAVAILABLE stub, id=', msg.key.id)
           continue
